@@ -1,0 +1,20 @@
+# Secrets
+.env
+*.json
+*credentials*
+
+# Terraform
+*.tfstate
+*.tfstate.backup
+.terraform/
+terraform.tfvars
+
+# Python
+__pycache__/
+*.pyc
+.venv/
+venv/
+
+# Data
+/data/
+*.csv
