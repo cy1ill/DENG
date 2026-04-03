@@ -2,6 +2,8 @@ services:
   postgres:
     image: postgres:15
     container_name: credit_risk_postgres
+    networks:
+      - pipeline-net
     environment:
       POSTGRES_USER: ${DB_USER}
       POSTGRES_PASSWORD: ${DB_PASSWORD}
@@ -10,6 +12,7 @@ services:
       - "5432:5432"
     volumes:
       - postgres_data:/var/lib/postgresql/data
+      - ../docker/init:/docker-entrypoint-initdb.d
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U ${DB_USER} -d ${DB_NAME}"]
       interval: 5s
@@ -19,6 +22,8 @@ services:
   pgadmin:
     image: dpage/pgadmin4
     container_name: credit_risk_pgadmin
+    networks:
+      - pipeline-net
     environment:
       PGADMIN_DEFAULT_EMAIL: admin@admin.com
       PGADMIN_DEFAULT_PASSWORD: admin
@@ -32,13 +37,86 @@ services:
       context: ..
       dockerfile: docker/Dockerfile
     container_name: credit_risk_ingestion
+    networks:
+      - pipeline-net
     env_file:
       - ../.env
+    environment:
+      DB_HOST: postgres
+      DB_PORT: "5432"
     volumes:
       - ../data:/app/data
     depends_on:
       postgres:
         condition: service_healthy
 
+  runner:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile
+    container_name: credit_risk_runner
+    networks:
+      - pipeline-net
+    env_file:
+      - ../.env
+    environment:
+      DB_HOST: postgres
+      DB_PORT: "5432"
+    volumes:
+      - ..:/workspace
+    command: tail -f /dev/null
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+  kestra:
+    build:
+      context: ..
+      dockerfile: docker/kestra.Dockerfile
+    container_name: credit_risk_kestra
+    user: "root"
+    command: server standalone
+    networks:
+      - pipeline-net
+    ports:
+      - "8081:8080"
+    volumes:
+      - ..:/workspace
+      - ../orchestration/flows:/flows
+      - kestra_data:/app/storage
+      - /var/run/docker.sock:/var/run/docker.sock
+      - /tmp:/tmp
+    env_file:
+      - ../.env
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      KESTRA_CONFIGURATION: |
+        datasources:
+          postgres:
+            url: jdbc:postgresql://postgres:5432/${KESTRA_DB_NAME}
+            driver-class-name: org.postgresql.Driver
+            username: ${DB_USER}
+            password: ${DB_PASSWORD}
+        kestra:
+          repository:
+            type: postgres
+          queue:
+            type: postgres
+          storage:
+            type: local
+            local:
+              base-path: /app/storage
+          tasks:
+            tmp-dir:
+              path: /tmp/kestra-wd/tmp
+          url: http://localhost:8080/
+
 volumes:
   postgres_data:
+  kestra_data:
+
+networks:
+  pipeline-net:
+    driver: bridge
