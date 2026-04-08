@@ -1,0 +1,28 @@
+id: credit_risk_pipeline
+namespace: credit_risk
+
+description: |
+  Ingests the credit risk CSV into local PostgreSQL
+  and then runs the cleaning transformation.
+
+tasks:
+  - id: validate_source
+    type: io.kestra.plugin.scripts.shell.Commands
+    taskRunner:
+      type: io.kestra.plugin.core.runner.Process
+    commands:
+      - docker exec credit_risk_runner sh -c "ls -l /workspace/data && test -f /workspace/data/raw_credit_data.csv"
+
+  - id: ingest
+    type: io.kestra.plugin.scripts.shell.Commands
+    taskRunner:
+      type: io.kestra.plugin.core.runner.Process
+    commands:
+      - docker exec -e CSV_PATH=/workspace/data/raw_credit_data.csv -e TABLE_NAME=credit_risk_raw credit_risk_runner python /workspace/ingestion/ingest.py
+
+  - id: transform
+    type: io.kestra.plugin.scripts.shell.Commands
+    taskRunner:
+      type: io.kestra.plugin.core.runner.Process
+    commands:
+      - docker exec -e CLEAN_TABLE_NAME=credit_risk_cleaned credit_risk_runner python /workspace/transformation/transform.py

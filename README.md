@@ -2,8 +2,7 @@
 
 A local data engineering pipeline for ingesting, validating, transforming, and orchestrating a credit risk dataset with PostgreSQL, pgAdmin, Docker Compose, and Kestra.
 
-Dataset source: Credit Risk Dataset (Kaggle)
-Kaggle: https://www.kaggle.com/datasets/laotse/credit-risk-dataset
+Dataset source: Credit Risk Dataset (Kaggle)  
 Source file used in this project: `data/raw_credit_data.csv`
 
 ---
