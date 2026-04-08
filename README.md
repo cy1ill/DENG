@@ -49,14 +49,14 @@ The dataset contains borrower demographics, financial information, loan characte
 
 ### Known Data Quality Issues
 
-This dataset has a few issues that need to be handled before analysis:
+This dataset contains several issues that need to be handled before analysis:
 
 - `person_age` contains unrealistic outliers above 85
 - `person_emp_length` contains missing values
-- `person_emp_length` contain unrealistic outliers above 60
-- `loan_int_rate` contain missing values
+- `person_emp_length` contains unrealistic outliers above 60
+- `loan_int_rate` contains missing values
 
-These issues are explicitly addressed in the transformation step.
+These issues are handled in the transformation step.
 
 ---
 
@@ -118,7 +118,8 @@ DENG/
 │   └── requirements.txt
 ├── orchestration/
 │   └── flows/
-│       └── local_ingest.yaml
+│       ├── local_ingest.yaml
+│       └── credit_risk_pipeline.yaml
 ├── transformation/
 │   └── transform.py
 ├── notebooks/
@@ -156,7 +157,7 @@ The ingestion step checks:
 
 * expected schema is present
 
-This protects the pipeline from loading incomplete target data into the raw database table. 
+This protects the pipeline from loading incomplete or invalid data into the raw database table.
 
 ---
 
@@ -170,7 +171,7 @@ transformation/transform.py
 
 ### What it does
 
-The transformation step reads the raw CSV, applies cleaning and feature engineering, saves a cleaned CSV, and loads the result into PostgreSQL.
+The transformation step reads the raw data, applies cleaning logic, saves a cleaned CSV, and loads the result into PostgreSQL.
 
 ### Output table
 
@@ -227,6 +228,7 @@ The Compose setup includes:
 * `ingestion`
 * `runner`
 * `kestra`
+* `kestra_importer`
 
 ### Purpose of each service
 
@@ -235,57 +237,46 @@ The Compose setup includes:
 * **ingestion**: runs the ingestion image
 * **runner**: reusable container used to execute pipeline scripts manually and from Kestra
 * **kestra**: orchestration and workflow monitoring
+* **kestra_importer**: automatically imports the real pipeline flow into Kestra after startup
 
 ---
 
 ## Workflow Orchestration with Kestra
 
-The Kestra flow is defined in:
+Kestra is used to orchestrate and monitor the local pipeline.
 
+### Flow files
 ```text
 orchestration/flows/local_ingest.yaml
+orchestration/flows/credit_risk_pipeline.yaml
 ```
 
-### Flow ID
+### Flow roles
+* `credit_risk_local_ingest`: minimal bootstrap flow to ensure the `credit_risk` namespace is available
+* `credit_risk_pipeline`: the real pipeline flow that validates the source file, runs ingestion, and runs transformation
 
-```text
-credit_risk_local_ingest
-```
+### Automatic import behavior
 
-### What the flow does
+* `local_ingest.yaml` is loaded automatically when Kestra starts
+* `credit_risk_pipeline.yaml` is imported automatically by the `kestra_importer` service after Kestra becomes healthy
 
-The flow has three main tasks:
+### Main pipeline tasks
 
-1. **validate_source**
-   checks that the raw CSV exists in the mounted workspace
+The main pipeline flow contains these tasks:
 
-2. **ingest**
-   runs `ingestion/ingest.py` and loads raw data into PostgreSQL
-
-3. **transform**
-   runs `transformation/transform.py` and writes the cleaned table
-
-### Scheduling
-
-The flow includes a cron trigger:
-
-```text
-0 6 * * *
-```
-
-This means it is scheduled to run daily at 06:00.
+1. `validate_source`
+2. `ingest`
+3. `transform`
 
 ### Why Kestra is used
 
 Kestra provides:
 
-* scheduled execution
-* task-level logging
 * workflow visibility
+* task-level logging
 * manual triggering
-* backfill support
-
-This makes the local pipeline reproducible and monitorable. 
+* reproducible orchestration
+* easier pipeline demonstration for the project
 
 ---
 
@@ -335,12 +326,13 @@ data/raw_credit_data.csv
 
 ### 4. Start the local stack
 
+Run from the repository root:
+
 ```bash
-cd docker
-docker compose up --build
+docker compose --env-file .env -f docker/docker-compose.yml up --build
 ```
 
-### 5. Verify PostgreSQL and pgAdmin
+### 5. Open pgAdmin
 
 Open:
 
@@ -360,48 +352,46 @@ Then add a PostgreSQL server with:
 * Username: value from `.env`
 * Password: value from `.env`
 
-### 6. Verify the raw table
-
-Run this query in pgAdmin:
-
-```sql
-SELECT COUNT(*) FROM credit_risk_raw;
-```
-
-### 7. Verify the cleaned table
-
-Run:
-
-```sql
-SELECT COUNT(*) FROM credit_risk_cleaned;
-```
-
-You can also preview rows:
-
-```sql
-SELECT * FROM credit_risk_cleaned LIMIT 20;
-```
-
-### 8. Open Kestra
+### 6. Open Kestra
 
 Open:
 
 ```text
-http://localhost:8081
+http://localhost:8081/ui/
 ```
 
-### 9. Run the flow manually
+Kestra login:
+
+* Username: `admin@kestra.io`
+* Password: `Admin1234`
+
+### 7. Verify Kestra flow import
+
+In the Kestra UI, open namespace `credit_risk`.
+
+You should see:
+
+* `credit_risk_local_ingest`
+* `credit_risk_pipeline`
+
+### 8. Run the pipeline manually
 
 In the Kestra UI:
 
 * open namespace `credit_risk`
-* select flow `credit_risk_local_ingest`
+* select flow `credit_risk_pipeline`
 * trigger an execution manually
 * inspect the logs of each task
 
-### 10. Backfill
+### 9. Verify outputs in PostgreSQL
 
-In Kestra, you can also create backfill runs for previous scheduled dates to demonstrate reproducibility and orchestration history. 
+Run these queries in pgAdmin:
+
+```sql
+SELECT COUNT(*) FROM credit_risk_raw;
+SELECT COUNT(*) FROM credit_risk_cleaned;
+SELECT * FROM credit_risk_cleaned LIMIT 20;
+```
 
 ---
 
@@ -420,7 +410,10 @@ After a successful run, you should have:
 
 ### In Kestra
 
-* a successful execution of `credit_risk_local_ingest`
+* namespace `credit_risk`
+* flow `credit_risk_local_ingest`
+* flow `credit_risk_pipeline`
+* a successful execution of `credit_risk_pipeline`
 * green task states for:
 
   * `validate_source`
@@ -434,25 +427,31 @@ After a successful run, you should have:
 ### Check raw row count
 
 ```sql
-SELECT COUNT(*) FROM credit_risk_raw;
+SELECT COUNT(*) AS raw_count FROM credit_risk_raw;
 ```
 
 ### Check cleaned row count
 
 ```sql
-SELECT COUNT(*) FROM credit_risk_cleaned;
+SELECT COUNT(*) AS cleaned_count FROM credit_risk_cleaned;
 ```
 
 ### Check that age outliers are removed
 
 ```sql
-SELECT MAX(person_age) FROM credit_risk_cleaned;
+SELECT MAX(person_age) AS max_age FROM credit_risk_cleaned;
 ```
 
 ### Check that employment length outliers are removed
 
 ```sql
-SELECT MAX(person_emp_length) FROM credit_risk_cleaned;
+SELECT MAX(person_emp_length) AS max_emp_length FROM credit_risk_cleaned;
+```
+
+### Preview cleaned rows
+
+```sql
+SELECT * FROM credit_risk_cleaned LIMIT 20;
 ```
 
 ---
@@ -471,8 +470,6 @@ Examples of evidence to include:
 * successful Kestra execution log
 * running services / UI screenshots
 
-This supports reproducibility and peer review. 
-
 ---
 
 ## Current Scope
@@ -484,13 +481,14 @@ This supports reproducibility and peer review.
 * Docker environment
 * transformation logic
 * local orchestration with Kestra
+* automatic Kestra pipeline import
 
 ### Planned next phases
 
 * Terraform infrastructure
 * Cloud Storage ingestion
 * BigQuery loading and transformation
-* final cloud architecture and presentation 
+* final cloud architecture and presentation
 
 ---
 
