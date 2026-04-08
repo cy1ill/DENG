@@ -3,6 +3,7 @@
 A local data engineering pipeline for ingesting, validating, transforming, and orchestrating a credit risk dataset with PostgreSQL, pgAdmin, Docker Compose, and Kestra.
 
 Dataset source: Credit Risk Dataset (Kaggle)  
+Source: https://www.kaggle.com/datasets/laotse/credit-risk-dataset/data
 Source file used in this project: `data/raw_credit_data.csv`
 
 ---
@@ -18,8 +19,6 @@ The pipeline:
 4. applies cleaning and feature engineering
 5. writes cleaned data back to PostgreSQL
 6. orchestrates the workflow with Kestra
-
-This is the local midterm part of the project. The later cloud phases will extend this pipeline to GCS, BigQuery, and Terraform. :contentReference[oaicite:1]{index=1}
 
 ---
 
@@ -52,13 +51,12 @@ The dataset contains borrower demographics, financial information, loan characte
 
 This dataset has a few issues that need to be handled before analysis:
 
-- `person_age` contains unrealistic outliers above 100
+- `person_age` contains unrealistic outliers above 85
 - `person_emp_length` contains missing values
-- `person_emp_length` may contain unrealistic outliers above 60
-- `loan_int_rate` may contain missing values
-- `cb_person_default_on_file` is stored as `Y` / `N` instead of a numeric feature
+- `person_emp_length` contain unrealistic outliers above 60
+- `loan_int_rate` contain missing values
 
-These issues are explicitly addressed in the transformation step. :contentReference[oaicite:3]{index=3}
+These issues are explicitly addressed in the transformation step.
 
 ---
 
@@ -142,7 +140,8 @@ ingestion/ingest.py
 
 * reads the raw CSV file
 * checks that expected columns exist
-* drops rows with null `loan_status`
+* drops rows with null `person_emp_length`
+* drops rows with null `loan_int_rate`
 * loads the validated raw data into PostgreSQL
 
 ### Output table
@@ -156,7 +155,6 @@ credit_risk_raw
 The ingestion step checks:
 
 * expected schema is present
-* `loan_status` is not null
 
 This protects the pipeline from loading incomplete target data into the raw database table. 
 
@@ -182,12 +180,12 @@ credit_risk_cleaned
 
 ### Transformations implemented
 
-#### 1. Remove unrealistic ages above 100
+#### 1. Remove unrealistic ages above 85
 
-Rows with `person_age > 100` are removed.
+Rows with `person_age > 85` are removed.
 
 **Why this helps:**
-Values above 100 are likely data entry errors and would distort borrower age analysis and downstream modeling.
+Values above 85 are likely data entry errors and would distort borrower age analysis and downstream modeling.
 
 #### 2. Remove unrealistic employment lengths above 60
 
@@ -198,7 +196,7 @@ Employment lengths above 60 years are not realistic and would reduce trust in th
 
 #### 3. Impute missing employment length with the median
 
-Missing `person_emp_length` values are filled with the median of the column.
+Rows with missing `person_emp_length` are removed.
 
 **Why this helps:**
 This preserves more rows for analysis instead of dropping records unnecessarily.
@@ -209,41 +207,6 @@ Rows with missing `loan_int_rate` are removed.
 
 **Why this helps:**
 Interest rate is an important risk-related variable and is needed for segmentation and feature creation.
-
-#### 5. Create `debt_to_income`
-
-A new feature is created:
-
-```text
-debt_to_income = loan_amnt / person_income
-```
-
-**Why this helps:**
-Debt-to-income is a core credit risk indicator and supports both analysis and later ML use.
-
-#### 6. Convert historical default flag into numeric form
-
-`cb_person_default_on_file` is converted from `Y/N` into:
-
-```text
-has_historical_default
-```
-
-with values `1` or `0`.
-
-**Why this helps:**
-This makes filtering easier in SQL and prepares the feature for ML workflows.
-
-#### 7. Create interest-rate bands
-
-`loan_int_rate` is grouped into:
-
-* Low
-* Medium
-* High
-
-**Why this helps:**
-This makes borrower segmentation easier for reporting and exploratory analysis. 
 
 ---
 
@@ -272,8 +235,6 @@ The Compose setup includes:
 * **ingestion**: runs the ingestion image
 * **runner**: reusable container used to execute pipeline scripts manually and from Kestra
 * **kestra**: orchestration and workflow monitoring
-
-This matches the project requirement to run the local pipeline in a reproducible Docker-based environment. 
 
 ---
 
@@ -342,7 +303,7 @@ You need:
 ### 1. Clone the repository
 
 ```bash
-git clone <your-repo-url>
+git clone https://github.com/cy1ill/DENG
 cd DENG
 ```
 
@@ -482,17 +443,6 @@ SELECT COUNT(*) FROM credit_risk_raw;
 SELECT COUNT(*) FROM credit_risk_cleaned;
 ```
 
-### Check new engineered columns
-
-```sql
-SELECT
-    debt_to_income,
-    has_historical_default,
-    rate_band
-FROM credit_risk_cleaned
-LIMIT 20;
-```
-
 ### Check that age outliers are removed
 
 ```sql
@@ -522,18 +472,6 @@ Examples of evidence to include:
 * running services / UI screenshots
 
 This supports reproducibility and peer review. 
-
----
-
-## Reproducibility Notes
-
-To make this project reproducible for another reviewer:
-
-* all services are started via Docker Compose
-* environment variables are documented in `.env.example`
-* pipeline logic is separated into ingestion and transformation scripts
-* orchestration is defined declaratively in a Kestra flow
-* verification can be done through pgAdmin and Kestra UI
 
 ---
 

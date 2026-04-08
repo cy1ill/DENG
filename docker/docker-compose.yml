@@ -75,31 +75,23 @@ services:
       dockerfile: docker/kestra.Dockerfile
     container_name: credit_risk_kestra
     user: "root"
-    command: server standalone
     networks:
       - pipeline-net
-    ports:
-      - "8081:8080"
-    volumes:
-      - ..:/workspace
-      - ../orchestration/flows:/flows
-      - kestra_data:/app/storage
-      - /var/run/docker.sock:/var/run/docker.sock
-      - /tmp:/tmp
-    env_file:
-      - ../.env
-    depends_on:
-      postgres:
-        condition: service_healthy
+    command: server standalone --flow-path /flows
     environment:
       KESTRA_CONFIGURATION: |
         datasources:
           postgres:
             url: jdbc:postgresql://postgres:5432/${KESTRA_DB_NAME}
-            driver-class-name: org.postgresql.Driver
+            driverClassName: org.postgresql.Driver
             username: ${DB_USER}
             password: ${DB_PASSWORD}
         kestra:
+          server:
+            basicAuth:
+              enabled: true
+              username: admin@kestra.io
+              password: Admin1234
           repository:
             type: postgres
           queue:
@@ -107,15 +99,49 @@ services:
           storage:
             type: local
             local:
-              base-path: /app/storage
+              basePath: /app/storage
           tasks:
             tmp-dir:
-              path: /tmp/kestra-wd/tmp
-          url: http://localhost:8080/
+              path: /app/tmp
+          url: http://localhost:8081/
+    ports:
+      - "8081:8080"
+      - "8082:8081"
+    volumes:
+      - kestra_data:/app/storage
+      - kestra_tmp:/app/tmp
+      - /var/run/docker.sock:/var/run/docker.sock
+      - ../orchestration/flows:/flows
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+  kestra_importer:
+    image: curlimages/curl:8.8.0
+    container_name: credit_risk_kestra_importer
+    networks:
+      - pipeline-net
+    depends_on:
+      - kestra
+    volumes:
+      - ../orchestration/flows:/flows:ro
+    entrypoint:
+      - sh
+      - -ec
+      - |
+          until curl -sf http://kestra:8081/health; do
+            echo "Waiting for Kestra..."
+            sleep 2
+          done
+          echo "Importing flow..."
+          curl -v --fail --show-error --max-time 30 -X POST -u admin@kestra.io:Admin1234 -H "Content-Type: application/x-yaml" --data-binary "@/flows/credit_risk_pipeline.yaml" http://kestra:8080/api/v1/main/flows
+          echo "Flow imported."
+    restart: "no"
 
 volumes:
   postgres_data:
   kestra_data:
+  kestra_tmp:
 
 networks:
   pipeline-net:
