@@ -62,8 +62,10 @@ services:
     environment:
       DB_HOST: postgres
       DB_PORT: "5432"
+      GOOGLE_APPLICATION_CREDENTIALS: /secrets/gcp-key.json
     volumes:
       - ..:/workspace
+      - ../secrets:/secrets:ro
     command: tail -f /dev/null
     depends_on:
       postgres:
