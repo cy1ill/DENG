@@ -1,3 +1,4 @@
+"""Transformation: clean the raw credit risk data and load it into PostgreSQL."""
 from pathlib import Path
 import os
 import logging
@@ -24,6 +25,7 @@ TABLE_NAME = os.environ.get("CLEAN_TABLE_NAME", "credit_risk_cleaned")
 
 
 def get_db_url() -> str:
+    """Build the PostgreSQL connection URL from environment variables."""
     return (
         f"postgresql://{os.environ['DB_USER']}:{os.environ['DB_PASSWORD']}"
         f"@{os.environ['DB_HOST']}:{os.environ['DB_PORT']}/{os.environ['DB_NAME']}"
@@ -31,6 +33,7 @@ def get_db_url() -> str:
 
 
 def transform_data(df: pd.DataFrame) -> pd.DataFrame:
+    """Clean the raw data: impute missing employment length, drop null interest rates, remove age outliers."""
     df["emp_length_missing"] = df["person_emp_length"].isnull().astype(int)
 
     df["person_emp_length"] = df["person_emp_length"].fillna(
@@ -47,6 +50,7 @@ def transform_data(df: pd.DataFrame) -> pd.DataFrame:
 
 
 def load_to_postgres(df: pd.DataFrame, db_url: str, table_name: str) -> None:
+    """Write the cleaned DataFrame to a PostgreSQL table, replacing any existing table."""
     logging.info(f"Loading cleaned data into table: {table_name}")
     engine = create_engine(db_url)
     df.to_sql(table_name, engine, if_exists="replace", index=False)
@@ -54,6 +58,7 @@ def load_to_postgres(df: pd.DataFrame, db_url: str, table_name: str) -> None:
 
 
 def main() -> None:
+    """Run the transformation pipeline: read raw data, clean it, save a CSV, load to PostgreSQL."""
     logging.info(f"Reading raw data from: {RAW_FILE}")
     df = pd.read_csv(RAW_FILE)
 

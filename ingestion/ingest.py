@@ -1,3 +1,4 @@
+"""Local ingestion: read the raw credit risk CSV, validate it, and load it into PostgreSQL."""
 import os
 import logging
 import pandas as pd
@@ -35,12 +36,14 @@ EXPECTED_COLUMNS = [
 ]
 
 def extract(path: str) -> pd.DataFrame:
+    """Read the raw CSV from disk into a DataFrame."""
     logging.info(f"Reading file: {path}")
     df = pd.read_csv(path)
     logging.info(f"Extracted {len(df):,} rows and {len(df.columns)} columns")
     return df
 
 def validate(df: pd.DataFrame) -> pd.DataFrame:
+    """Check expected columns are present and drop rows with a null loan_status."""
     missing = [col for col in EXPECTED_COLUMNS if col not in df.columns]
     if missing:
         raise ValueError(f"Missing expected columns: {missing}")
@@ -54,12 +57,14 @@ def validate(df: pd.DataFrame) -> pd.DataFrame:
     return df
 
 def load(df: pd.DataFrame, db_url: str, table_name: str) -> None:
+    """Write the DataFrame to a PostgreSQL table, replacing any existing table."""
     logging.info(f"Loading into table: {table_name}")
     engine = create_engine(db_url)
     df.to_sql(table_name, engine, if_exists="replace", index=False)
     logging.info(f"Loaded {len(df):,} rows into '{table_name}'")
 
 def main() -> None:
+    """Run the local ingestion pipeline: extract, validate, load."""
     df = extract(FILE_PATH)
     df = validate(df)
     load(df, DB_URL, TABLE_NAME)
