@@ -1,0 +1,27 @@
+id: credit_risk_gcs_ingestion
+namespace: credit_risk
+
+description: |
+  Cloud data lake ingestion: uploads the raw credit risk CSV to the
+  Google Cloud Storage data lake under a dated path (raw/credit_risk_<date>.csv).
+  Scheduled monthly; supports backfills and manual triggers.
+
+triggers:
+  - id: monthly_schedule
+    type: io.kestra.plugin.core.trigger.Schedule
+    cron: "0 6 1 * *"
+
+tasks:
+  - id: validate_source
+    type: io.kestra.plugin.scripts.shell.Commands
+    taskRunner:
+      type: io.kestra.plugin.core.runner.Process
+    commands:
+      - docker exec credit_risk_runner sh -c "test -f /workspace/data/raw_credit_data.csv"
+
+  - id: upload_to_data_lake
+    type: io.kestra.plugin.scripts.shell.Commands
+    taskRunner:
+      type: io.kestra.plugin.core.runner.Process
+    commands:
+      - docker exec -e RUN_DATE="{{ trigger.date ?? execution.startDate }}" -e CSV_PATH=/workspace/data/raw_credit_data.csv credit_risk_runner python /workspace/ingestion/ingest_gcs.py

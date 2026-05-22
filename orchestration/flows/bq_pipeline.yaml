@@ -1,0 +1,21 @@
+id: credit_risk_bq_pipeline
+namespace: credit_risk
+
+description: |
+  Cloud data warehouse pipeline: reads the raw file from the GCS data lake,
+  applies the cleaning transformation, and loads it into a partitioned and
+  clustered BigQuery table. Scheduled monthly, one hour after the data lake
+  ingestion; supports backfills and manual triggers.
+
+triggers:
+  - id: monthly_schedule
+    type: io.kestra.plugin.core.trigger.Schedule
+    cron: "0 7 1 * *"
+
+tasks:
+  - id: load_to_bigquery
+    type: io.kestra.plugin.scripts.shell.Commands
+    taskRunner:
+      type: io.kestra.plugin.core.runner.Process
+    commands:
+      - docker exec -e RUN_DATE="{{ trigger.date ?? execution.startDate }}" credit_risk_runner python /workspace/ingestion/ingest_bq.py
