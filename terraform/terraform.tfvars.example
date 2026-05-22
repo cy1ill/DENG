@@ -1,0 +1,12 @@
+# Copy this file to terraform.tfvars and fill in your values.
+# terraform.tfvars is gitignored — never commit real values.
+
+project_id  = "your-gcp-project-id"
+region      = "EU"
+bucket_name = "credit-risk-lake-yourname"
+bq_dataset  = "credit_risk_dw"
+
+# Optional: path to a service account JSON key.
+# Leave commented out to use Application Default Credentials
+# (run: gcloud auth application-default login).
+# credentials_file = "../secrets/gcp-key.json"
