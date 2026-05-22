@@ -22,10 +22,12 @@ CLEAN_FILE = DATA_DIR / "cleaned_credit_data.csv"
 
 TABLE_NAME = os.environ.get("CLEAN_TABLE_NAME", "credit_risk_cleaned")
 
-DB_URL = (
-    f"postgresql://{os.environ['DB_USER']}:{os.environ['DB_PASSWORD']}"
-    f"@{os.environ['DB_HOST']}:{os.environ['DB_PORT']}/{os.environ['DB_NAME']}"
-)
+
+def get_db_url() -> str:
+    return (
+        f"postgresql://{os.environ['DB_USER']}:{os.environ['DB_PASSWORD']}"
+        f"@{os.environ['DB_HOST']}:{os.environ['DB_PORT']}/{os.environ['DB_NAME']}"
+    )
 
 
 def transform_data(df: pd.DataFrame) -> pd.DataFrame:
@@ -63,7 +65,7 @@ def main() -> None:
     logging.info(f"Saving cleaned data to: {CLEAN_FILE}")
     df_clean.to_csv(CLEAN_FILE, index=False)
 
-    load_to_postgres(df_clean, DB_URL, TABLE_NAME)
+    load_to_postgres(df_clean, get_db_url(), TABLE_NAME)
 
     logging.info("Transformation complete.")
 
