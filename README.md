@@ -16,7 +16,7 @@ The pipeline:
 1. reads a raw CSV file
 2. validates the schema and required target column
 3. loads raw data into PostgreSQL
-4. applies cleaning and feature engineering
+4. applies cleaning transformations
 5. writes cleaned data back to PostgreSQL
 6. orchestrates the workflow with Kestra
 
@@ -24,7 +24,13 @@ The pipeline:
 
 ## Use Case
 
-A bank or lending company wants to decide whether a loan applicant is likely to default on a loan. Using historical borrower data such as income, employment length, loan amount, interest rate, and credit history, a machine learning model can predict the probability of default.
+**Persona — Maria, a Credit Risk Analyst at a mid-sized retail bank.**
+
+**Why she needs a pipeline:** Maria currently pulls raw borrower CSVs by hand each reporting cycle and cleans them in a spreadsheet before passing them on. The process is slow, error-prone, and not reproducible — when the source format changes or an outlier slips through, the downstream default model trains on bad data.
+
+**What problem it solves:** She needs an automated, repeatable pipeline that ingests raw credit-bureau data, applies consistent cleaning, and delivers a query-ready table, so every consumer works from the same trusted dataset.
+
+**How she uses the processed data:** Maria queries the cleaned table to build risk segments — e.g. default rate by `loan_grade`, or high-risk borrowers by `loan_intent` — and hands the result to the data science team as training data for a loan-default prediction model. The cleaning decisions in this pipeline are driven directly by those queries.
 
 ---
 
@@ -49,14 +55,14 @@ The dataset contains borrower demographics, financial information, loan characte
 
 ### Known Data Quality Issues
 
-This dataset contains several issues that need to be handled before analysis:
+This dataset contains several issues that are handled before analysis:
 
-- `person_age` contains unrealistic outliers above 85
+- `loan_status` (the target column) can be missing — such rows cannot be used for modelling
+- `person_age` contains unrealistic outliers (e.g. ages of 144)
 - `person_emp_length` contains missing values
-- `person_emp_length` contains unrealistic outliers above 60
 - `loan_int_rate` contains missing values
 
-These issues are handled in the transformation step.
+`loan_status` is checked during ingestion; the remaining issues are handled in the transformation step.
 
 ---
 
@@ -150,9 +156,8 @@ ingestion/ingest.py
 ### What it does
 
 * reads the raw CSV file
-* checks that expected columns exist
-* drops rows with null `person_emp_length`
-* drops rows with null `loan_int_rate`
+* checks that all expected columns are present
+* drops rows with a null `loan_status` (the target column)
 * loads the validated raw data into PostgreSQL
 
 ### Output table
@@ -163,11 +168,12 @@ credit_risk_raw
 
 ### Validation logic
 
-The ingestion step checks:
+The ingestion step:
 
-* expected schema is present
+* verifies that every expected column is present, and fails fast if any are missing
+* drops rows with a null `loan_status`, since the target column is required for modelling
 
-This protects the pipeline from loading incomplete or invalid data into the raw database table.
+This protects the pipeline from loading incomplete or invalid data into the raw table.
 
 ---
 
@@ -191,33 +197,26 @@ credit_risk_cleaned
 
 ### Transformations implemented
 
-#### 1. Remove unrealistic ages above 85
+#### 1. Remove unrealistic ages
 
 Rows with `person_age > 85` are removed.
 
 **Why this helps:**
-Values above 85 are likely data entry errors and would distort borrower age analysis and downstream modeling.
+The raw data contains impossible ages (such as 144). These would distort age-based risk segments and bias model training. The same junk records also hold the dataset's other extreme outliers (e.g. `person_emp_length` of 123 years), so removing them cleans both fields at once.
 
-#### 2. Remove unrealistic employment lengths above 60
+#### 2. Impute missing employment length
 
-Rows with `person_emp_length > 60` are removed.
-
-**Why this helps:**
-Employment lengths above 60 years are not realistic and would reduce trust in the cleaned dataset.
-
-#### 3. Remove missing person_emp_length
-
-Rows with missing `person_emp_length` are removed.
+Missing `person_emp_length` values are filled with the column median.
 
 **Why this helps:**
-This preserves more rows for analysis instead of dropping records unnecessarily.
+Roughly 2.5% of rows have no employment length. Dropping them would discard otherwise-valid borrowers; imputing with the median keeps those rows usable and is robust to outliers.
 
-#### 4. Remove rows with missing interest rate
+#### 3. Remove rows with missing interest rate
 
-Rows with missing `loan_int_rate` are removed.
+Rows with a missing `loan_int_rate` are removed.
 
 **Why this helps:**
-Interest rate is an important risk-related variable and is needed for segmentation and feature creation.
+Interest rate is a core risk signal needed for segmentation and model features. Unlike employment length it cannot be sensibly imputed, so incomplete rows are dropped.
 
 ---
 
@@ -277,6 +276,10 @@ The main pipeline flow contains these tasks:
 1. `validate_source`
 2. `ingest`
 3. `transform`
+
+### Scheduling and backfills
+
+`credit_risk_pipeline` has a daily schedule trigger (`0 6 * * *`), so it runs on a regular basis without manual intervention. Past runs can be replayed from the Kestra UI via **Triggers → Backfill**, and a run can be triggered manually at any time from the flow page.
 
 ### Why Kestra is used
 
