@@ -196,7 +196,7 @@ Rows with `person_emp_length > 60` are removed.
 **Why this helps:**
 Employment lengths above 60 years are not realistic and would reduce trust in the cleaned dataset.
 
-#### 3. Impute missing employment length with the median
+#### 3. Remove missing person_emp_length
 
 Missing `person_emp_length` values are filled with the median of the column.
 

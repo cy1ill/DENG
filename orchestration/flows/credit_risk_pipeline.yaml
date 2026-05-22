@@ -5,6 +5,11 @@ description: |
   Ingests the credit risk CSV into local PostgreSQL
   and then runs the cleaning transformation.
 
+triggers:
+  - id: daily_schedule
+    type: io.kestra.plugin.core.trigger.Schedule
+    cron: "0 6 * * *"
+
 tasks:
   - id: validate_source
     type: io.kestra.plugin.scripts.shell.Commands
@@ -26,3 +31,4 @@ tasks:
       type: io.kestra.plugin.core.runner.Process
     commands:
       - docker exec -e CLEAN_TABLE_NAME=credit_risk_cleaned credit_risk_runner python /workspace/transformation/transform.py
+      
