@@ -5,16 +5,16 @@ services:
     networks:
       - pipeline-net
     environment:
-      POSTGRES_USER: ${DB_USER}
-      POSTGRES_PASSWORD: ${DB_PASSWORD}
-      POSTGRES_DB: ${DB_NAME}
+      POSTGRES_USER: ${DB_USER:-postgres}
+      POSTGRES_PASSWORD: ${DB_PASSWORD:-postgres}
+      POSTGRES_DB: ${DB_NAME:-credit_risk}
     ports:
       - "5432:5432"
     volumes:
       - postgres_data:/var/lib/postgresql/data
       - ../docker/init:/docker-entrypoint-initdb.d
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U ${DB_USER} -d ${DB_NAME}"]
+      test: ["CMD-SHELL", "pg_isready -U ${DB_USER:-postgres} -d ${DB_NAME:-credit_risk}"]
       interval: 5s
       timeout: 5s
       retries: 10
@@ -71,6 +71,37 @@ services:
       postgres:
         condition: service_healthy
 
+  # One-shot idempotent guard: creates the Kestra metadata DB on every startup
+  # if it's missing. The init SQL in /docker-entrypoint-initdb.d runs ONLY on a
+  # fresh Postgres volume, so a half-broken first start would otherwise leave
+  # the kestra DB absent and Kestra unable to connect. This service makes that
+  # failure mode impossible.
+  kestra_db_init:
+    image: postgres:15
+    container_name: credit_risk_kestra_db_init
+    networks:
+      - pipeline-net
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      PGHOST: postgres
+      PGUSER: ${DB_USER:-postgres}
+      PGPASSWORD: ${DB_PASSWORD:-postgres}
+      KESTRA_DB: ${KESTRA_DB_NAME:-kestra}
+    entrypoint:
+      - sh
+      - -ec
+      - |
+        echo "Ensuring database $$KESTRA_DB exists..."
+        if psql -tAc "SELECT 1 FROM pg_database WHERE datname='$$KESTRA_DB'" | grep -q 1; then
+          echo "Database $$KESTRA_DB already exists."
+        else
+          psql -c "CREATE DATABASE \"$$KESTRA_DB\""
+          echo "Database $$KESTRA_DB created."
+        fi
+    restart: "no"
+
   kestra:
     build:
       context: ..
@@ -84,10 +115,10 @@ services:
       KESTRA_CONFIGURATION: |
         datasources:
           postgres:
-            url: jdbc:postgresql://postgres:5432/${KESTRA_DB_NAME}
+            url: jdbc:postgresql://postgres:5432/${KESTRA_DB_NAME:-kestra}
             driverClassName: org.postgresql.Driver
-            username: ${DB_USER}
-            password: ${DB_PASSWORD}
+            username: ${DB_USER:-postgres}
+            password: ${DB_PASSWORD:-postgres}
         kestra:
           server:
             basicAuth:
@@ -117,6 +148,8 @@ services:
     depends_on:
       postgres:
         condition: service_healthy
+      kestra_db_init:
+        condition: service_completed_successfully
 
   kestra_importer:
     image: curlimages/curl:8.8.0

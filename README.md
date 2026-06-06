@@ -682,6 +682,49 @@ Examples of evidence to include:
 
 ---
 
+## Troubleshooting
+
+### Kestra fails with `Failed to initialize pool: The connection attempt failed`
+
+Almost always one of three things:
+
+1. **`.env` missing or incomplete.** Create it from `.env.example` and make sure
+   `DB_USER`, `DB_PASSWORD`, `DB_NAME`, and `KESTRA_DB_NAME` are all set.
+2. **Compose started without `--env-file`.** The compose file interpolates
+   `${DB_USER}`, `${KESTRA_DB_NAME}` etc. at parse time. Without `--env-file .env`
+   they become empty strings and Kestra tries to connect with no credentials and
+   no database name. Always run from the repo root:
+   ```bash
+   docker compose --env-file .env -f docker/docker-compose.yml up --build
+   ```
+   The compose file now ships with sensible defaults
+   (`${DB_USER:-postgres}` etc.) so a missing `.env` produces a working stack
+   instead of silent failure, but you should still set your own `.env` for
+   anything beyond a smoke test.
+3. **Stale Postgres volume from a previous broken first start.** The init SQL
+   in `docker/init/` runs only on a fresh data directory. The
+   `kestra_db_init` one-shot service is a belt-and-braces guard that creates
+   the Kestra metadata DB on every startup, so this failure mode is now
+   prevented — but if you upgraded from an older version of this repo and
+   are still seeing it, wipe the volumes and start fresh:
+   ```bash
+   docker compose -f docker/docker-compose.yml down -v
+   docker compose --env-file .env -f docker/docker-compose.yml up --build
+   ```
+
+### Verifying that both databases exist
+
+After the stack is up, you can confirm Postgres has both the data DB and the
+Kestra metadata DB:
+
+```bash
+docker exec -it credit_risk_postgres psql -U postgres -l
+```
+
+You should see `credit_risk` **and** `kestra` in the list.
+
+---
+
 ## Current Scope
 
 ### Completed — local phase
